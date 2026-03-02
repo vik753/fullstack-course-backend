@@ -7,6 +7,9 @@ GET http://localhost:3001/api/persons/8
 ### Get all persons
 GET http://localhost:3001/api/persons
 
+### Get all persons PROD
+GET https://fullstack-course-backend-zywp.onrender.com/api/persons
+
 ### Delete a person by id
 DELETE http://localhost:3001/api/persons/4d691d9e-8bf1-4ac1-9256-0d62f8f37ac2
 

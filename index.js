@@ -1,8 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
 import express from "express";
+import cors from "cors";
 import { setError } from "./helpers/errorHandler.js";
 const app = express();
 
+app.use(cors());
 app.use(express.json());
 
 const persons = [
