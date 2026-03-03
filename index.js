@@ -3,15 +3,18 @@ import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
 import Person from "./models/person.js";
-import { setError } from "./helpers/errorHandler.js";
 const app = express();
 
-const url = process.env.MONGODB_URI;
+app.use(cors());
+app.use(express.json());
+app.use(express.static("dist"));
+
+const MONGO_URI = process.env.MONGODB_URI;
 
 mongoose.set("strictQuery", false);
 
 mongoose
-  .connect(url, { family: 4 })
+  .connect(MONGO_URI, { family: 4 })
   .then(() => {
     console.log("connected to MongoDB");
   })
@@ -19,32 +22,24 @@ mongoose
     console.log("error connecting to MongoDB:", error.message);
   });
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static("dist"));
-
 app.get("/api/persons", (req, res) => {
   Person.find({}).then((persons) => {
     res.json(persons);
   });
 });
 
-app.get("/api/persons/:id", (req, res) => {
+app.get("/api/persons/:id", (req, res, next) => {
   Person.findById(req.params.id)
     .then((person) => {
       if (person) {
         res.json(person);
       } else {
-        return setError({ res, error: "Person not found", code: 404 });
+        res.status(404).end();
       }
     })
     .catch((error) => {
-      console.log(error);
-      return setError({
-        res,
-        error: "The provided ID for FETCHING a person is invalid.",
-        code: 400,
-      });
+      error.operation = "FETCHING";
+      next(error);
     });
 });
 
@@ -59,26 +54,22 @@ app.get("/info", (req, res) => {
   });
 });
 
-app.delete("/api/persons/:id", (req, res) => {
+app.delete("/api/persons/:id", (req, res, next) => {
   Person.findByIdAndDelete(req.params.id)
     .then((result) => {
       if (result) {
         res.status(204).end();
       } else {
-        return setError({ res, error: "Person not found", code: 404 });
+        res.status(404).end();
       }
     })
     .catch((error) => {
-      console.log(error);
-      return setError({
-        res,
-        error: "The provided ID for DELETING a person is invalid.",
-        code: 400,
-      });
+      error.operation = "DELETING";
+      next(error);
     });
 });
 
-app.put("/api/persons/:id", (req, res) => {
+app.put("/api/persons/:id", (req, res, next) => {
   const body = req.body;
 
   const person = {
@@ -95,35 +86,25 @@ app.put("/api/persons/:id", (req, res) => {
       if (updatedPerson) {
         res.json(updatedPerson);
       } else {
-        return setError({ res, error: "Person not found", code: 404 });
+        res.status(404).end();
       }
     })
     .catch((error) => {
-      console.log(error);
-      return setError({
-        res,
-        error: "The provided ID for UPDATING a person is invalid.",
-        code: 400,
-      });
+      error.operation = "UPDATING";
+      next(error);
     });
 });
 
-app.post("/api/persons", (req, res) => {
+app.post("/api/persons", (req, res, next) => {
   const body = req.body;
 
-  if (!body.name || body.name.trim().length < 2 || !body.number) {
-    let errorMessage = "";
-    if (!body.name || body.name.trim().length < 2) {
-      errorMessage += "Name is required and must be at least 2 characters. ";
-    }
-    if (!body.number) {
-      errorMessage += "Number is required.";
-    }
-    return setError({ res, error: errorMessage, code: 400 });
-  }
+  Person.findOne({ name: body.name })
+    .then((existingPerson) => {
+      if (existingPerson) {
+        res.status(400).json({ error: "name must be unique" });
+        return null;
+      }
 
-  Person.findOneAndDelete({ name: body.name })
-    .then(() => {
       const person = new Person({
         name: body.name,
         number: body.number,
@@ -132,13 +113,28 @@ app.post("/api/persons", (req, res) => {
       return person.save();
     })
     .then((savedPerson) => {
-      res.json(savedPerson);
+      if (savedPerson) {
+        res.json(savedPerson);
+      }
     })
-    .catch((error) => {
-      console.log(error);
-      return setError({ res, error: "Failed to save person", code: 500 });
-    });
+    .catch((error) => next(error));
 });
+
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message);
+
+  if (error.name === "CastError") {
+    return response.status(400).send({
+      error: `The provided ID for ${error.operation || "this operation"} a person is invalid.`,
+    });
+  } else if (error.name === "ValidationError") {
+    return response.status(400).json({ error: error.message });
+  }
+
+  next(error);
+};
+
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
